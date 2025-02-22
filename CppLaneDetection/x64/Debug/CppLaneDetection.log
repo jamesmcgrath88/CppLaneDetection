@@ -1,3 +1,4 @@
 ﻿  main.cpp
-C:\dev\CppLaneDetection\CppLaneDetection\CppLaneDetection\main.cpp(9,10): warning C4067: unexpected tokens following preprocessor directive - expected a newline
+  OutputVideo.cpp
+  Generating Code...
   CppLaneDetection.vcxproj -> C:\dev\CppLaneDetection\CppLaneDetection\x64\Debug\CppLaneDetection.exe
