@@ -15,9 +15,10 @@ static void CreateROIMask(cv::Mat& mask, int width, int height)
 	mask = cv::Mat::zeros(height, width, CV_8U);
 
 	std::vector<cv::Point> fillContSingle;
-	fillContSingle.push_back(cv::Point(0, height));
-	fillContSingle.push_back(cv::Point((width / 2), (height / 2)));
-	fillContSingle.push_back(cv::Point(width, height));
+	fillContSingle.push_back(cv::Point(400, 700));
+	fillContSingle.push_back(cv::Point(900, 300));
+	fillContSingle.push_back(cv::Point(920, 300));
+	fillContSingle.push_back(cv::Point(1700, 700));
 
 	std::vector<std::vector<cv::Point> > fillContAll;
 	fillContAll.push_back(fillContSingle);
@@ -75,10 +76,25 @@ int main(void)
 
 		cv::bitwise_and( cannyFrame, roiMask, maskedCannyFrame );
 
-		videoOut.WriteFrameToOutputVideo(maskedCannyFrame);
-		//videoOut.WriteFrameToOutputVideo(roiMask);
+		std::vector<cv::Vec4i> lines;
+		cv::HoughLinesP(maskedCannyFrame, lines, 2.0, CV_PI / 180, 500, 0.0, 100.0);
 
-		if (++frameCount > 300) { break; }
+		cv::Mat blankImage;
+		blankImage = cv::Mat::zeros(grayFrame.rows, grayFrame.cols, CV_8UC3);
+		for (size_t i = 0; i < lines.size(); i++)
+		{
+			cv::Vec4i l = lines[i];
+			cv::line(blankImage, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0, 255, 0), 3);
+
+		}
+
+		cv::Mat outFrame;
+		cv::addWeighted(frame, 0.8, blankImage, 1, 0.0, outFrame);
+
+		//videoOut.WriteFrameToOutputVideo(roiMask);
+		videoOut.WriteFrameToOutputVideo(outFrame);
+
+		//if (++frameCount > 300) { break; }
 	}
 
 	videoOut.SaveOutputVideo();
