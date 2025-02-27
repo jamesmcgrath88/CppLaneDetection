@@ -117,6 +117,9 @@ static void DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, cv::M
 	blankImage = cv::Mat::zeros(grayFrame.rows, grayFrame.cols, CV_8UC3);
 	std::vector<Line_t> positiveSlopeLines;
 	std::vector<Line_t> negativeSlopeLines;
+	std::vector<float> positiveSlopes;
+	std::vector<float> negativeSlopes;
+	std::cout << "Found lines: " << lines.size() << std::endl;
 	for (size_t i = 0; i < lines.size(); i++)
 	{
 		cv::Vec4i l = lines[i];
@@ -126,10 +129,12 @@ static void DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, cv::M
 		{
 			double slope = (p2.y - p1.y) / (double)(p2.x - p1.x);
 			float lineLength = pow(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2), .5);
+			
 			if ( (lineLength > 30) && (slope != 0.0) )
 			{
-				float tanTheta = tan((abs(p2.y - p1.y)) / (abs(p2.x - p1.x))); // tan(theta) value
+				float tanTheta = tan((float)(abs(p2.y - p1.y)) / (float)(abs(p2.x - p1.x))); // tan(theta) value
 				float angle = atan(tanTheta) * 180 / CV_PI;
+				std::cout << "Line[" << i << "] - length: " << lineLength << " - slope: " << slope << " - angle: " << angle << std::endl;
 				if (abs(angle) < 85 && abs(angle) > 20)
 				{	// Going to keep this line
 					Line_t line;
@@ -141,24 +146,72 @@ static void DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, cv::M
 					if (slope < 0.0) // negative slope
 					{
 						negativeSlopeLines.push_back(line);
+						negativeSlopes.push_back(angle);
 					}
 					else // positive slope
 					{
 						positiveSlopeLines.push_back(line);
+						positiveSlopes.push_back(angle);
 					}
-					//cv::line(blankImage, p1, p2, cv::Scalar(0, 255, 0), 3);
+					cv::line(blankImage, p1, p2, cv::Scalar(0, 255, 0), 3);
 				}
 			}
 		}
 	}
 
-	cv::addWeighted(originalFrame, 0.8, blankImage, 1, 0.0, outFrame);
+	sort(positiveSlopes.begin(), positiveSlopes.end());
+	float posSlopeMedian = 0.0f;
+	int middleIdx = positiveSlopes.size() / 2;
+	if (positiveSlopes.size() % 2 == 0) // Even number of elements in the vector
+	{
+		posSlopeMedian = (positiveSlopes[middleIdx] + positiveSlopes[(middleIdx - 1)]) / 2.0f;
+	}
+	else
+	{
+		posSlopeMedian = positiveSlopes[middleIdx];
+	}
+	std::cout << "Number of positive slope lines: " << positiveSlopes.size() << std::endl;
+	std::cout << "Positive slope angle median: " << posSlopeMedian << std::endl;
+	float posSum = 0.0;
+	std::vector<float> slopesGoodPositive;
+	for (const float& i : positiveSlopes)
+	{
+		if (abs(i - posSlopeMedian) < (posSlopeMedian * 0.2f))
+		{
+			slopesGoodPositive.push_back(i);
+			posSum += i;
+		}
+	}
+	float posSlopeMean = posSum / slopesGoodPositive.size();
+	std::cout << "Mean postive slope: " << posSlopeMean << std::endl;
 
-	std::ostringstream outFileName;
-	outFileName << "C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\mc\\out_";
-	outFileName << "t" << fno++ << "_";
-	outFileName << ".jpg";
-	cv::imwrite(outFileName.str(), maskedCannyFrame);
+	sort(negativeSlopes.begin(), negativeSlopes.end());
+	float negSlopeMedian = 0.0f;
+	middleIdx = negativeSlopes.size() / 2;
+	if (negativeSlopes.size() % 2 == 0) // Even number of elements in the vector
+	{
+		negSlopeMedian = (negativeSlopes[middleIdx] + negativeSlopes[(middleIdx - 1)]) / 2.0f;
+	}
+	else
+	{
+		negSlopeMedian = negativeSlopes[middleIdx];
+	}
+	std::cout << "Number of negative slope lines: " << negativeSlopes.size() << std::endl;
+	std::cout << "Negative slope angle median: " << negSlopeMedian << std::endl;
+	float negSum = 0.0;
+	std::vector<float> slopesGoodNegative;
+	for (const float& i : negativeSlopes)
+	{
+		if (abs(i - negSlopeMedian) < (negSlopeMedian * 0.2f))
+		{
+			slopesGoodNegative.push_back(i);
+			negSum += i;
+		}
+	}
+	float negSlopeMean = negSum / slopesGoodNegative.size();
+	std::cout << "Mean negative slope: " << negSlopeMean << std::endl;
+
+	cv::addWeighted(originalFrame, 0.8, blankImage, 1, 0.0, outFrame);
 }
 
 static void ExtractYellowAndWhite(cv::Mat frame, cv::Mat& outFrame)
@@ -190,12 +243,12 @@ int main(void)
 
 	if (videoMode == false)
 	{
-		cv::Mat frame = cv::imread("C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\SingleCarraigeway\\image19443.jpg");
+		cv::Mat frame = cv::imread("C:\\Users\\james\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\SingleCarraigeway\\image29741.jpg");//19131
 		cv::Mat colorMaskedFrame;
 		ExtractYellowAndWhite(frame, colorMaskedFrame);
 		cv::Mat outFrame;
 		DoLaneDetection(frame, colorMaskedFrame, outFrame);
-		cv::imwrite("C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\out_frame.jpg", outFrame);
+		cv::imwrite("C:\\Users\\james\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\out_frame.jpg", outFrame);
 	}
 	else
 	{
