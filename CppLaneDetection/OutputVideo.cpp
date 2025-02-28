@@ -7,6 +7,10 @@
 #include <iostream>
 #include "OutputVideo.h"
 
+OutputVideo::OutputVideo(const std::string workingDir)
+{
+	workingDirectory = workingDir;
+}
 
 bool OutputVideo::WriteFrameToOutputVideo(cv::Mat frameToWrite)
 {
@@ -16,7 +20,7 @@ bool OutputVideo::WriteFrameToOutputVideo(cv::Mat frameToWrite)
 	{
 		bool isColor = (frameToWrite.type() == CV_8UC3);
 		int codec = cv::VideoWriter::fourcc('m', 'p', '4', 'v');
-		std::string outputVideo("C:\\Users\\james\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\Singlecarriageway_out.mp4");
+		std::string outputVideo(workingDirectory + "Singlecarriageway_out.mp4");
 		writer.open(outputVideo, codec, fps, frameToWrite.size(), isColor);
 	}
 

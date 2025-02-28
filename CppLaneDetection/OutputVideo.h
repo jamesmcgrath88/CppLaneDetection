@@ -12,8 +12,10 @@ class OutputVideo
 {
 	cv::VideoWriter writer;
 	double fps = 30.0;
+	std::string workingDirectory;
 
 public:
+	OutputVideo(const std::string workingDir);
 	bool WriteFrameToOutputVideo(cv::Mat frameToWrite);
 	bool SaveOutputVideo(void);
 };
