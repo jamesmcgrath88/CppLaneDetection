@@ -56,6 +56,11 @@ bool compareByXIntercept(const Line_t& a, const Line_t& b)
 	return a.bbXIntercept < b.bbXIntercept;
 }
 
+double GetTriangleAreaFromVertices(cv::Point v1, cv::Point v2, cv::Point v3)
+{
+	return (double)std::abs(v1.x * (v2.y - v3.y) + v2.x * (v3.y - v1.y) + v3.x * (v1.y - v2.y)) / 2.0;
+}
+
 cv::Point FindIntersection(cv::Point A, cv::Point B, cv::Point C, cv::Point D)
 {
 	// Line AB represented as a1x + b1y = c1
@@ -414,11 +419,57 @@ static void ExtractYellowAndWhite(cv::Mat frame, cv::Mat& outFrame)
 	}
 }
 
-int main(void)
+typedef enum
+{
+	RunMode_Image,
+	RunMode_ImageKPI,
+	RunMode_Video,
+	RunMode_Tune
+} ERunMode;
+
+int main(int argc, char* argv[])
 {
 	std::cout << "CPP Lane Detection!" << std::endl;
+	int fID = 19131;//19131//29741
+	std::string subfolder = "SingleCarraigeway";
+	ERunMode mode = RunMode_ImageKPI;
+	int gt1X = 400;
+	int gt1Y = 700;
+	int gt2X = 800;
+	int gt2Y = 300;
+	int gt3X = 1000;
+	int gt3Y = 300;
+	int gt4X = 1700;
+	int gt4Y = 700;
 	
-	bool videoMode = true;
+	if (argc >= 3)
+	{
+		subfolder = argv[1];
+		fID = std::stoi(argv[2]);
+		if (argc == 11)
+		{
+			gt1X = std::stoi(argv[3]);
+			gt1Y = std::stoi(argv[4]);
+			gt2X = std::stoi(argv[5]);
+			gt2Y = std::stoi(argv[6]);
+			gt3X = std::stoi(argv[7]);
+			gt3Y = std::stoi(argv[8]);
+			gt4X = std::stoi(argv[9]);
+			gt4Y = std::stoi(argv[10]);
+			std::cout << "*** " << subfolder << "\\" << fID << ".jpg ***" << std::endl;
+			std::cout << "Ground Truth: " << std::endl;
+			std::cout << "P1(" << gt1X << ", " << gt1Y << ")" << std::endl;
+			std::cout << "P2(" << gt2X << ", " << gt2Y << ")" << std::endl;
+			std::cout << "P3(" << gt3X << ", " << gt3Y << ")" << std::endl;
+			std::cout << "P4(" << gt4X << ", " << gt4Y << ")" << std::endl;
+			mode = RunMode_ImageKPI;
+		}
+		else
+		{
+			mode = RunMode_Image;
+		}
+	}
+	
 	cv::Mat roiMask;
 	int bbY = 0;
 	std::vector<cv::Point> boudingBoxVertices;
@@ -433,10 +484,9 @@ int main(void)
 	hyperparams.houghHyperparams.minLineLength = 20.0f;
 	hyperparams.houghHyperparams.maxLineGap = 50.0f;
 
-	if (videoMode == false)
+	if ((mode == RunMode_Image) || (mode == RunMode_ImageKPI))
 	{
-		int fID = 19131;//19131//29741
-		cv::Mat frame = cv::imread(WORKING_DIRECTORY + "SingleCarraigeway\\image" + std::to_string(fID) + ".jpg");
+		cv::Mat frame = cv::imread(WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".jpg");
 		bbY = CreateROIMask(roiMask, frame.cols, frame.rows);
 		if (SAVE_EVERYTHING)
 		{
@@ -447,8 +497,55 @@ int main(void)
 		cv::Mat outFrame;
 		DoLaneDetection(frame, colorMaskedFrame, roiMask, bbY, fID, hyperparams, outFrame, boudingBoxVertices);
 		cv::imwrite(WORKING_DIRECTORY + "out_frame_" + std::to_string(fID) + ".jpg", outFrame);
+
+		if(mode == RunMode_ImageKPI)
+		{
+			double boundingBoxArea = 0.0f;
+			boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[1], boudingBoxVertices[2]);
+			boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[2], boudingBoxVertices[3]);
+
+			std::vector<cv::Point> groundTruthVertices;
+			groundTruthVertices.push_back(cv::Point(gt1X, gt1Y));
+			groundTruthVertices.push_back(cv::Point(gt2X, gt2Y));
+			groundTruthVertices.push_back(cv::Point(gt3X, gt3Y));
+			groundTruthVertices.push_back(cv::Point(gt4X, gt4Y));
+
+			double groundTruthArea = 0.0f;
+			groundTruthArea += GetTriangleAreaFromVertices(groundTruthVertices[0], groundTruthVertices[1], groundTruthVertices[2]);
+			groundTruthArea += GetTriangleAreaFromVertices(groundTruthVertices[0], groundTruthVertices[2], groundTruthVertices[3]);
+
+			int unionCount = 0, intersectionCount = 0;
+			for (int r = 0; r < bbY; r++)
+			{
+				for (int c = 0; c < frame.cols; c++)
+				{
+					double pBBarea = 0.0, pGTArea = 0.0;
+					for (int i = 0; i < 4; i++)
+					{
+						pBBarea += GetTriangleAreaFromVertices(cv::Point(r, c), boudingBoxVertices[i], boudingBoxVertices[((i+1) % 4)]);
+						pGTArea += GetTriangleAreaFromVertices(cv::Point(r, c), groundTruthVertices[i], groundTruthVertices[((i + 1) % 4)]);
+					}
+
+					if ((pBBarea <= boundingBoxArea) && (pGTArea <= groundTruthArea))
+					{
+						intersectionCount++;
+						unionCount++;
+					}
+					else if ((pBBarea <= boundingBoxArea) || (pGTArea <= groundTruthArea))
+					{
+						unionCount++;
+					}
+				}
+			}
+			float iou = 0.0f;
+			if (unionCount > 0)
+			{
+				iou = (float)intersectionCount / (float)unionCount;
+			}
+			std::cout << "IoU: " << iou << std::endl;
+		}
 	}
-	else
+	else if(mode == RunMode_Video)
 	{
 		std::string inputVideo(WORKING_DIRECTORY + "Singlecarriageway.mp4");
 		cv::VideoCapture capture(inputVideo);
@@ -466,7 +563,7 @@ int main(void)
 		cv::Mat frame;
 		int fno = 0;
 		bool roiMaskInitDone = false;
-		int frameLimit = 300;// 40000;
+		int frameLimit = 40000;
 		while (capture.read(frame))
 		{
 			if (roiMaskInitDone == false)
