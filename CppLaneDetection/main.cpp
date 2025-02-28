@@ -13,6 +13,7 @@
 
 const std::string WORKING_DIRECTORY = "C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\";
 const bool SAVE_EVERYTHING = false;
+const bool PRINT_TO_CONSOLE = false;
 
 typedef struct
 {
@@ -55,6 +56,28 @@ bool compareByXIntercept(const Line_t& a, const Line_t& b)
 	return a.bbXIntercept < b.bbXIntercept;
 }
 
+cv::Point FindIntersection(cv::Point A, cv::Point B, cv::Point C, cv::Point D)
+{
+	// Line AB represented as a1x + b1y = c1
+	double a = B.y - A.y;
+	double b = A.x - B.x;
+	double c = a * (A.x) + b * (A.y);
+	// Line CD represented as a2x + b2y = c2
+	double a1 = D.y - C.y;
+	double b1 = C.x - D.x;
+	double c1 = a1 * (C.x) + b1 * (C.y);
+	double det = a * b1 - a1 * b;
+	if (det == 0)
+	{
+		return cv::Point(0, 0);
+	}
+	else
+	{
+		int x = (int)std::round( (b1 * c - b * c1) / det );
+		int y = (int)std::round( (a * c1 - a1 * c) / det );
+		return cv::Point(x, y);
+	}
+}
 
 static int CreateROIMask(cv::Mat& mask, int width, int height)
 {
@@ -78,15 +101,15 @@ static int CreateROIMask(cv::Mat& mask, int width, int height)
 
 static void HoughTuning(cv::Mat originalFrame, cv::Mat maskedCannyFrame, bool saveEachFrame, int fID, HoughHyperparameters_t& bestParamsOut)
 {
-	for (double rho = 1.0f; rho < 1.1f; rho += 1.0f)
+	for (double rho = 1.0; rho < 1.1; rho += 1.0)
 	{
-		for (int theta = 1.0f; theta < 1.1f; theta += 1.0f)
+		for (int theta = 1; theta <= 1; theta++)
 		{
 			for (int threshold = 10; threshold < 110; threshold += 10)
 			{
-				for (double minLineLength = 20.0f; minLineLength < 100.0f; minLineLength += 20.0f)
+				for (double minLineLength = 20.0; minLineLength < 100.0; minLineLength += 20.0)
 				{
-					for (double maxLineGap = 10.0f; maxLineGap < 100.0f; maxLineGap += 20.0f)
+					for (double maxLineGap = 10.0; maxLineGap < 100.0; maxLineGap += 20.0)
 					{
 						std::vector<cv::Vec4i> linesTuning;
 						cv::HoughLinesP(maskedCannyFrame, linesTuning, rho, (theta * (CV_PI / 180.0f)), threshold, minLineLength, maxLineGap);
@@ -131,19 +154,19 @@ static void LineFiltering(std::vector<cv::Vec4i>& lines, int bbY, std::vector<Li
 		if (p2.x != p1.x)
 		{
 			double slope = (p2.y - p1.y) / (double)(p2.x - p1.x);
-			float lineLength = pow(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2), .5);
+			double lineLength = pow(pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2), .5);
 
-			if ((lineLength > 30) && (slope != 0.0))
+			if ((lineLength > 30.0) && (slope != 0.0))
 			{
 				float tanTheta = tan((float)(abs(p2.y - p1.y)) / (float)(abs(p2.x - p1.x)));
-				float angle = atan(tanTheta) * 180 / CV_PI;
-				std::cout << "Line[" << i << "] - length: " << lineLength << " - slope: " << slope << " - angle: " << angle << std::endl;
+				double angle = atan(tanTheta) * 180 / CV_PI;
+				if (PRINT_TO_CONSOLE) { std::cout << "Line[" << i << "] - length: " << lineLength << " - slope: " << slope << " - angle: " << angle << std::endl; }
 				if (abs(angle) < 85 && abs(angle) > 20)
 				{	// Going to keep this line
 					Line_t line;
 					line.p1 = p1;
 					line.p2 = p2;
-					line.angle = angle;
+					line.angle = (float)angle;
 					line.bbP1Y = bbY - p1.y;
 					int bbP2Y = bbY - p2.y;
 					line.bbSlope = (float)(bbP2Y - line.bbP1Y)/(p2.x - p1.x);
@@ -165,38 +188,49 @@ static void LineFiltering(std::vector<cv::Vec4i>& lines, int bbY, std::vector<Li
 
 static float SlopeFiltering(std::vector<Line_t>& lines)
 {
-	std::sort(lines.begin(), lines.end(), compareBySlope);
-	float slopeMedian = 0.0f;
-	int middleIdx = lines.size() / 2;
-	if (lines.size() % 2 == 0) // Even number of elements in the vector
+	float slopeMean = 0.0f;
+
+	if (lines.size() > 0)
 	{
-		slopeMedian = (lines[middleIdx].angle + lines[(middleIdx - 1)].angle) / 2.0f;
-	}
-	else
-	{
-		slopeMedian = lines[middleIdx].angle;
-	}
-	std::cout << "Number of slope lines: " << lines.size() << std::endl;
-	std::cout << "Slope angle median: " << slopeMedian << std::endl;
-	float slopeSum = 0.0f;
-	float slopeFilter = (slopeMedian * 0.2f);
-	std::vector<Line_t>::iterator it = lines.begin();
-	while (it != lines.end())
-	{
-		float dA = abs(it->angle - slopeMedian);
-		if (dA > slopeFilter)
+		float slopeMedian = 0.0f;
+		std::sort(lines.begin(), lines.end(), compareBySlope);
+		size_t middleIdx = lines.size() / 2;
+		if (lines.size() % 2 == 0) // Even number of elements in the vector
 		{
-			it = lines.erase(it);
+			slopeMedian = (lines[middleIdx].angle + lines[(middleIdx - 1)].angle) / 2.0f;
 		}
 		else
 		{
-			slopeSum += it->bbSlope;
-			++it;
+			slopeMedian = lines[middleIdx].angle;
+		}
+		if (PRINT_TO_CONSOLE)
+		{
+			std::cout << "Number of slope lines: " << lines.size() << std::endl;
+			std::cout << "Slope angle median: " << slopeMedian << std::endl;
+		}
+		float slopeSum = 0.0f;
+		float slopeFilter = (slopeMedian * 0.2f);
+		std::vector<Line_t>::iterator it = lines.begin();
+		while (it != lines.end())
+		{
+			float dA = abs(it->angle - slopeMedian);
+			if (dA > slopeFilter)
+			{
+				it = lines.erase(it);
+			}
+			else
+			{
+				slopeSum += it->bbSlope;
+				++it;
+			}
+		}
+
+		if (lines.size() > 0)
+		{
+			slopeMean = slopeSum / lines.size();
+			if (PRINT_TO_CONSOLE) { std::cout << "Mean slope: " << slopeMean << std::endl; }
 		}
 	}
-
-	float slopeMean = slopeSum / lines.size();
-	std::cout << "Mean slope: " << slopeMean << std::endl;
 
 	return slopeMean;
 }
@@ -204,8 +238,8 @@ static float SlopeFiltering(std::vector<Line_t>& lines)
 static void xInterceptFiltering(std::vector<Line_t>& lines, float& meanXInterceptOut, int& yOut)
 {
 	std::sort(lines.begin(), lines.end(), compareByXIntercept);
-	float xInterceptMedian = 0.0f;
-	int middleIdx = lines.size() / 2;
+	double xInterceptMedian = 0.0f;
+	size_t middleIdx = lines.size() / 2;
 	if (lines.size() % 2 == 0) // Even number of elements in the vector
 	{
 		xInterceptMedian = (lines[middleIdx].bbXIntercept + lines[(middleIdx - 1)].bbXIntercept) / 2.0f;
@@ -215,7 +249,7 @@ static void xInterceptFiltering(std::vector<Line_t>& lines, float& meanXIntercep
 		xInterceptMedian = lines[middleIdx].bbXIntercept;
 	}
 
-	float xInterceptSum = 0.0f;
+	double xInterceptSum = 0.0f;
 	int goodLinesCount = 0;
 	for (const Line_t& i : lines)
 	{
@@ -235,23 +269,22 @@ static void xInterceptFiltering(std::vector<Line_t>& lines, float& meanXIntercep
 	}
 	if (goodLinesCount > 0)
 	{
-		meanXInterceptOut = xInterceptSum / (float)goodLinesCount;
+		meanXInterceptOut = (float)(xInterceptSum / (float)goodLinesCount);
 	}
 }
 
-static void DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, const cv::Mat& roiMask, int bbY, int fID, const LaneDetectionHyperparameters& hyperparams, cv::Mat& outFrame, std::vector<cv::Point>& boudingBoxVertices)
+static bool DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, const cv::Mat& roiMask, int bbY, int fID, const LaneDetectionHyperparameters& hyperparams, cv::Mat& outFrame, std::vector<cv::Point>& boudingBoxVertices)
 {
 	cv::Mat grayFrame;
 	cv::Mat blurredFrame;
 	cv::Mat cannyFrame;
 	cv::Mat maskedCannyFrame;
-	bool tuning = false;
-	static int fno = 0;
+	bool laneFound = false;
 
 	if (frameToProcess.empty())
 	{
 		std::cerr << "ERROR! blank frame grabbed" << std::endl;
-		return;
+		return laneFound;
 	}
 	
 	cv::cvtColor(frameToProcess, grayFrame, cv::COLOR_RGB2GRAY);
@@ -287,7 +320,7 @@ static void DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, const
 	blankImage = cv::Mat::zeros(grayFrame.rows, grayFrame.cols, CV_8UC3);
 	std::vector<Line_t> positiveSlopeLines;
 	std::vector<Line_t> negativeSlopeLines;
-	std::cout << "Found lines: " << lines.size() << std::endl;
+	if (PRINT_TO_CONSOLE) { std::cout << "Found lines: " << lines.size() << std::endl; }
 	// Line Filtering
 	LineFiltering(lines, bbY, positiveSlopeLines, negativeSlopeLines);
 
@@ -295,39 +328,57 @@ static void DoLaneDetection(cv::Mat originalFrame, cv::Mat frameToProcess, const
 	float posSlopeMean = -1.0f*SlopeFiltering(positiveSlopeLines);
 	float negSlopeMean = -1.0f*SlopeFiltering(negativeSlopeLines);
 
-	float meanXInterceptPos = 0.0f, meanXInterceptNeg = 0.0f;
-	int yPos = originalFrame.rows, yNeg = originalFrame.rows;
-	xInterceptFiltering(positiveSlopeLines, meanXInterceptPos, yPos);
-	xInterceptFiltering(negativeSlopeLines, meanXInterceptNeg, yNeg);
-
-	if ((yPos < originalFrame.rows) && (yNeg < originalFrame.rows))
+	if ((positiveSlopeLines.size() > 0) && (negativeSlopeLines.size() > 0))
 	{
-		cv::Point pos1, pos2;
-		pos1.x = (int)std::round(meanXInterceptPos);
-		pos1.y = bbY;
-		pos2.y = yPos;
-		pos2.x = (int)std::round(((float)(pos2.y - pos1.y) / posSlopeMean) + pos1.x);
-		
-		cv::Point neg1, neg2;
-		neg1.x = (int)std::round(meanXInterceptNeg);
-		neg1.y = bbY;
-		neg2.y = yNeg;
-		neg2.x = (int)std::round(((float)(neg2.y - neg1.y) / negSlopeMean) + neg1.x);
-		
-		boudingBoxVertices.push_back(pos1);
-		boudingBoxVertices.push_back(pos2);
-		boudingBoxVertices.push_back(neg2);
-		boudingBoxVertices.push_back(neg1);
 
-		std::vector<std::vector<cv::Point> > fillContAll;
-		fillContAll.push_back(boudingBoxVertices);
-		cv::fillPoly(blankImage, fillContAll, cv::Scalar(0, 255, 255));
-		cv::addWeighted(originalFrame, 0.8, blankImage, 0.2, 0.0, outFrame);
+		float meanXInterceptPos = 0.0f, meanXInterceptNeg = 0.0f;
+		int yPos = originalFrame.rows, yNeg = originalFrame.rows;
+		xInterceptFiltering(positiveSlopeLines, meanXInterceptPos, yPos);
+		xInterceptFiltering(negativeSlopeLines, meanXInterceptNeg, yNeg);
 
-		cv::line(outFrame, pos1, pos2, cv::Scalar(0, 255, 0), 5);
-		cv::line(outFrame, neg1, neg2, cv::Scalar(0, 255, 0), 5);
+		if ((yPos < originalFrame.rows) && (yNeg < originalFrame.rows))
+		{
+			cv::Point pos1, pos2;
+			pos1.x = (int)std::round(meanXInterceptPos);
+			pos1.y = bbY;
+			pos2.y = yPos;
+			pos2.x = (int)std::round(((float)(pos2.y - pos1.y) / posSlopeMean) + pos1.x);
+
+			cv::Point neg1, neg2;
+			neg1.x = (int)std::round(meanXInterceptNeg);
+			neg1.y = bbY;
+			neg2.y = yNeg;
+			neg2.x = (int)std::round(((float)(neg2.y - neg1.y) / negSlopeMean) + neg1.x);
+
+			if (pos2.x > neg2.x)
+			{	// The lines cross - have them meet at the crossing point
+				cv::Point intersection = FindIntersection( pos1, pos2, neg1, neg2 );
+				pos2 = intersection;
+				neg2 = intersection;
+			}
+
+			boudingBoxVertices.push_back(pos1);
+			boudingBoxVertices.push_back(pos2);
+			boudingBoxVertices.push_back(neg2);
+			boudingBoxVertices.push_back(neg1);
+
+			std::vector<std::vector<cv::Point> > fillContAll;
+			fillContAll.push_back(boudingBoxVertices);
+			cv::fillPoly(blankImage, fillContAll, cv::Scalar(0, 255, 255));
+			cv::addWeighted(originalFrame, 0.8, blankImage, 0.2, 0.0, outFrame);
+
+			cv::line(outFrame, pos1, pos2, cv::Scalar(0, 255, 0), 5);
+			cv::line(outFrame, neg1, neg2, cv::Scalar(0, 255, 0), 5);
+
+			laneFound = true;
+		}
 	}
-	
+	else
+	{
+		outFrame = originalFrame.clone();
+	}
+
+	return laneFound;
 }
 
 static void ExtractYellowAndWhite(cv::Mat frame, cv::Mat& outFrame)
@@ -367,7 +418,7 @@ int main(void)
 {
 	std::cout << "CPP Lane Detection!" << std::endl;
 	
-	bool videoMode = false;
+	bool videoMode = true;
 	cv::Mat roiMask;
 	int bbY = 0;
 	std::vector<cv::Point> boudingBoxVertices;
@@ -415,6 +466,7 @@ int main(void)
 		cv::Mat frame;
 		int fno = 0;
 		bool roiMaskInitDone = false;
+		int frameLimit = 300;// 40000;
 		while (capture.read(frame))
 		{
 			if (roiMaskInitDone == false)
@@ -425,9 +477,15 @@ int main(void)
 			cv::Mat colorMaskedFrame;
 			ExtractYellowAndWhite(frame, colorMaskedFrame);
 			cv::Mat outFrame;
+			boudingBoxVertices.clear();
 			DoLaneDetection(frame, colorMaskedFrame, roiMask, bbY, fno, hyperparams, outFrame, boudingBoxVertices);
 			videoOut.WriteFrameToOutputVideo(outFrame);
+			std::cout << "F#: " << fno << std::endl;
 			fno++;
+			if (fno > frameLimit)
+			{	// Provide a way to break out of the processing is taking too long
+				break;
+			}
 		}
 
 		videoOut.SaveOutputVideo();
