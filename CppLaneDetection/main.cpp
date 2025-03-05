@@ -84,69 +84,18 @@ cv::Point FindIntersection(cv::Point A, cv::Point B, cv::Point C, cv::Point D)
 	}
 }
 
-static int CreateROIMask(cv::Mat& mask, int width, int height)
+static int CreateROIMask(cv::Mat& mask, int width, int height, std::vector<cv::Point>& roiVertices)
 {
-	int roiMaskBBLowerY = 700;
+	int roiMaskBBLowerY = roiVertices[0].y;
 
 	mask = cv::Mat::zeros(height, width, CV_8U);
 
-	std::vector<cv::Point> fillContSingle;
-	fillContSingle.push_back(cv::Point(400, roiMaskBBLowerY));
-	fillContSingle.push_back(cv::Point(800, 300));
-	fillContSingle.push_back(cv::Point(1000, 300));
-	fillContSingle.push_back(cv::Point(1700, roiMaskBBLowerY));
-
 	std::vector<std::vector<cv::Point> > fillContAll;
-	fillContAll.push_back(fillContSingle);
+	fillContAll.push_back(roiVertices);
 
 	cv::fillPoly(mask, fillContAll, cv::Scalar(255));
 
 	return roiMaskBBLowerY;
-}
-
-static void HoughTuning(cv::Mat originalFrame, cv::Mat maskedCannyFrame, bool saveEachFrame, int fID, HoughHyperparameters_t& bestParamsOut)
-{
-	for (double rho = 1.0; rho < 1.1; rho += 1.0)
-	{
-		for (int theta = 1; theta <= 1; theta++)
-		{
-			for (int threshold = 10; threshold < 110; threshold += 10)
-			{
-				for (double minLineLength = 20.0; minLineLength < 100.0; minLineLength += 20.0)
-				{
-					for (double maxLineGap = 10.0; maxLineGap < 100.0; maxLineGap += 20.0)
-					{
-						std::vector<cv::Vec4i> linesTuning;
-						cv::HoughLinesP(maskedCannyFrame, linesTuning, rho, (theta * (CV_PI / 180.0f)), threshold, minLineLength, maxLineGap);
-
-						cv::Mat blankImage;
-						blankImage = cv::Mat::zeros(originalFrame.rows, originalFrame.cols, CV_8UC3);
-						for (size_t i = 0; i < linesTuning.size(); i++)
-						{
-							cv::Vec4i l = linesTuning[i];
-							cv::line(blankImage, cv::Point(l[0], l[1]), cv::Point(l[2], l[3]), cv::Scalar(0, 255, 0), 3);
-
-						}
-						cv::Mat outFrameTuning;
-						cv::addWeighted(originalFrame, 0.8, blankImage, 1, 0.0, outFrameTuning);
-						if (saveEachFrame)
-						{
-							std::ostringstream outFileName;
-							outFileName << "C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\tuning\\out_";
-							outFileName << "fID" << fID << "_";
-							outFileName << "rho" << rho << "_";
-							outFileName << "theta" << theta << "_";
-							outFileName << "threshold" << threshold << "_";
-							outFileName << "mll" << minLineLength << "_";
-							outFileName << "mlg" << maxLineGap << "_";
-							outFileName << ".jpg";
-							cv::imwrite(outFileName.str(), outFrameTuning);
-						}
-					}
-				}
-			}
-		}
-	}
 }
 
 static void LineFiltering(std::vector<cv::Vec4i>& lines, int bbY, std::vector<Line_t>& positiveSlopeLines, std::vector<Line_t>& negativeSlopeLines)
@@ -419,20 +368,117 @@ static void ExtractYellowAndWhite(cv::Mat frame, cv::Mat& outFrame)
 	}
 }
 
+static float CalculateIoU(int imCols, int imRows, std::vector<cv::Point> boudingBoxVertices, std::vector<cv::Point> groundTruthVertices)
+{
+	int unionCount = 0, intersectionCount = 0;
+	if ((boudingBoxVertices.size() > 0) && (groundTruthVertices.size() > 0))
+	{
+		double boundingBoxArea = 0.0f;
+		boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[1], boudingBoxVertices[2]);
+		boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[2], boudingBoxVertices[3]);
+
+		double groundTruthArea = 0.0f;
+		groundTruthArea += GetTriangleAreaFromVertices(groundTruthVertices[0], groundTruthVertices[1], groundTruthVertices[2]);
+		groundTruthArea += GetTriangleAreaFromVertices(groundTruthVertices[0], groundTruthVertices[2], groundTruthVertices[3]);
+
+
+		for (int r = 0; r < imRows; r++)
+		{
+			for (int c = 0; c < imCols; c++)
+			{
+				double pBBarea = 0.0, pGTArea = 0.0;
+				for (int i = 0; i < 4; i++)
+				{
+					pBBarea += GetTriangleAreaFromVertices(cv::Point(r, c), boudingBoxVertices[i], boudingBoxVertices[((i + 1) % 4)]);
+					pGTArea += GetTriangleAreaFromVertices(cv::Point(r, c), groundTruthVertices[i], groundTruthVertices[((i + 1) % 4)]);
+				}
+
+				if ((pBBarea <= boundingBoxArea) && (pGTArea <= groundTruthArea))
+				{
+					intersectionCount++;
+					unionCount++;
+				}
+				else if ((pBBarea <= boundingBoxArea) || (pGTArea <= groundTruthArea))
+				{
+					unionCount++;
+				}
+			}
+		}
+	}
+	float iou = 0.0f;
+	if (unionCount > 0)
+	{
+		iou = (float)intersectionCount / (float)unionCount;
+	}
+	return iou;
+}
+
+static float CalculateIoU(const cv::Mat& gtframe, std::vector<cv::Point> boudingBoxVertices)
+{
+	int unionCount = 0, intersectionCount = 0;
+
+	if (boudingBoxVertices.size() > 0)
+	{
+		double boundingBoxArea = 0.0f;
+		boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[1], boudingBoxVertices[2]);
+		boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[2], boudingBoxVertices[3]);
+
+		for (int r = 0; r < gtframe.rows; r++)
+		{
+			for (int c = 0; c < gtframe.cols; c++)
+			{
+				bool pointInGT = false;
+				cv::Vec3b intensity = gtframe.at<cv::Vec3b>(r, c);
+				if ((intensity.val[0] == 255) && (intensity.val[1] == 0) && (intensity.val[2] == 255))
+				{
+					pointInGT = true;
+				}
+
+				double pBBarea = 0.0;
+				for (int i = 0; i < 4; i++)
+				{
+					pBBarea += GetTriangleAreaFromVertices(cv::Point(r, c), boudingBoxVertices[i], boudingBoxVertices[((i + 1) % 4)]);
+				}
+				bool pointInBB = (pBBarea <= boundingBoxArea) ? true : false;
+
+				if ((pointInBB) && (pointInGT))
+				{
+					intersectionCount++;
+					unionCount++;
+				}
+				else if ((pointInBB) || (pointInGT))
+				{
+					unionCount++;
+				}
+			}
+		}
+	}
+	float iou = 0.0f;
+	if (unionCount > 0)
+	{
+		iou = (float)intersectionCount / (float)unionCount;
+	}
+	return iou;
+}
+
 typedef enum
 {
 	RunMode_Image,
-	RunMode_ImageKPI,
+	RunMode_ImageKPI_Sligo,
+	RunMode_ImageKPI_KITTI,
 	RunMode_Video,
-	RunMode_Tune
+	RunMode_Tune_Sligo,
+	RunMode_Tune_KITTI,
 } ERunMode;
 
 int main(int argc, char* argv[])
 {
+	//.\CppLaneDetection.exe archive\\data_road_224\\training\\image_2 223 2 10 223 90 110 140 110 170 223 archive\\data_road_224\\training\\gt_image_2\\gt_image_224_223.png
 	std::cout << "CPP Lane Detection!" << std::endl;
-	int fID = 19131;//19131//29741
-	std::string subfolder = "SingleCarraigeway";
-	ERunMode mode = RunMode_ImageKPI;
+	int fID = 223;//19131//29741
+	std::string subfolder = "archive\\data_road_224\\training\\image_2";
+	std::string kittiGTPath = "archive\\data_road_224\\training\\gt_image_2\\gt_image_224_223.png";
+	ERunMode mode = RunMode_ImageKPI_KITTI;
 	int gt1X = 400;
 	int gt1Y = 700;
 	int gt2X = 800;
@@ -441,38 +487,77 @@ int main(int argc, char* argv[])
 	int gt3Y = 300;
 	int gt4X = 1700;
 	int gt4Y = 700;
+
+	int roi1X = 10;
+	int roi1Y = 223;
+	int roi2X = 90;
+	int roi2Y = 110;
+	int roi3X = 140;
+	int roi3Y = 110;
+	int roi4X = 170;
+	int roi4Y = 223;
 	
-	if (argc >= 3)
+	if (argc >= 4)
 	{
 		subfolder = argv[1];
+		std::cout << "*** " << subfolder << "\\" << fID << ".jpg ***" << std::endl;
 		fID = std::stoi(argv[2]);
-		if (argc == 11)
+		mode = (ERunMode)std::stoi(argv[3]);
+		if (argc >= 12)
 		{
-			gt1X = std::stoi(argv[3]);
-			gt1Y = std::stoi(argv[4]);
-			gt2X = std::stoi(argv[5]);
-			gt2Y = std::stoi(argv[6]);
-			gt3X = std::stoi(argv[7]);
-			gt3Y = std::stoi(argv[8]);
-			gt4X = std::stoi(argv[9]);
-			gt4Y = std::stoi(argv[10]);
-			std::cout << "*** " << subfolder << "\\" << fID << ".jpg ***" << std::endl;
-			std::cout << "Ground Truth: " << std::endl;
-			std::cout << "P1(" << gt1X << ", " << gt1Y << ")" << std::endl;
-			std::cout << "P2(" << gt2X << ", " << gt2Y << ")" << std::endl;
-			std::cout << "P3(" << gt3X << ", " << gt3Y << ")" << std::endl;
-			std::cout << "P4(" << gt4X << ", " << gt4Y << ")" << std::endl;
-			mode = RunMode_ImageKPI;
-		}
-		else
-		{
-			mode = RunMode_Image;
+			roi1X = std::stoi(argv[4]);
+			roi1Y = std::stoi(argv[5]);
+			roi2X = std::stoi(argv[6]);
+			roi2Y = std::stoi(argv[7]);
+			roi3X = std::stoi(argv[8]);
+			roi3Y = std::stoi(argv[9]);
+			roi4X = std::stoi(argv[10]);
+			roi4Y = std::stoi(argv[11]);
+			std::cout << "ROI: " << std::endl;
+			std::cout << "ROI1(" << roi1X << ", " << roi1Y << ")" << std::endl;
+			std::cout << "ROI2(" << roi2X << ", " << roi2Y << ")" << std::endl;
+			std::cout << "ROI3(" << roi3X << ", " << roi3Y << ")" << std::endl;
+			std::cout << "ROI4(" << roi4X << ", " << roi4Y << ")" << std::endl;
+
+			if (argc == 20)
+			{
+				gt1X = std::stoi(argv[12]);
+				gt1Y = std::stoi(argv[13]);
+				gt2X = std::stoi(argv[14]);
+				gt2Y = std::stoi(argv[15]);
+				gt3X = std::stoi(argv[16]);
+				gt3Y = std::stoi(argv[17]);
+				gt4X = std::stoi(argv[18]);
+				gt4Y = std::stoi(argv[19]);
+				
+				std::cout << "Ground Truth: " << std::endl;
+				std::cout << "P1(" << gt1X << ", " << gt1Y << ")" << std::endl;
+				std::cout << "P2(" << gt2X << ", " << gt2Y << ")" << std::endl;
+				std::cout << "P3(" << gt3X << ", " << gt3Y << ")" << std::endl;
+				std::cout << "P4(" << gt4X << ", " << gt4Y << ")" << std::endl;
+			}
+			else if (argc == 13)
+			{
+				kittiGTPath = argv[12];
+			}
 		}
 	}
 	
 	cv::Mat roiMask;
 	int bbY = 0;
 	std::vector<cv::Point> boudingBoxVertices;
+	std::vector<cv::Point> roiVertices;
+	std::vector<cv::Point> groundTruthVertices;
+
+	roiVertices.push_back(cv::Point(roi1X, roi1Y));
+	roiVertices.push_back(cv::Point(roi2X, roi2Y));
+	roiVertices.push_back(cv::Point(roi3X, roi3Y));
+	roiVertices.push_back(cv::Point(roi4X, roi4Y));
+
+	groundTruthVertices.push_back(cv::Point(gt1X, gt1Y));
+	groundTruthVertices.push_back(cv::Point(gt2X, gt2Y));
+	groundTruthVertices.push_back(cv::Point(gt3X, gt3Y));
+	groundTruthVertices.push_back(cv::Point(gt4X, gt4Y));
 
 	// Set some default hyperparameters
 	LaneDetectionHyperparameters hyperparams;
@@ -484,10 +569,11 @@ int main(int argc, char* argv[])
 	hyperparams.houghHyperparams.minLineLength = 20.0f;
 	hyperparams.houghHyperparams.maxLineGap = 50.0f;
 
-	if ((mode == RunMode_Image) || (mode == RunMode_ImageKPI))
+	if ((mode == RunMode_Image) || (mode == RunMode_ImageKPI_Sligo) || (mode == RunMode_ImageKPI_KITTI))
 	{
-		cv::Mat frame = cv::imread(WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".jpg");
-		bbY = CreateROIMask(roiMask, frame.cols, frame.rows);
+		cv::Mat frame = cv::imread(WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".png");
+		std::cout << WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".png" << std::endl;
+		bbY = CreateROIMask(roiMask, frame.cols, frame.rows, roiVertices);
 		if (SAVE_EVERYTHING)
 		{
 			cv::imwrite(WORKING_DIRECTORY + "roiMask.jpg", roiMask);
@@ -498,51 +584,14 @@ int main(int argc, char* argv[])
 		DoLaneDetection(frame, colorMaskedFrame, roiMask, bbY, fID, hyperparams, outFrame, boudingBoxVertices);
 		cv::imwrite(WORKING_DIRECTORY + "out_frame_" + std::to_string(fID) + ".jpg", outFrame);
 
-		if(mode == RunMode_ImageKPI)
+		if(mode == RunMode_ImageKPI_Sligo)
 		{
-			double boundingBoxArea = 0.0f;
-			boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[1], boudingBoxVertices[2]);
-			boundingBoxArea += GetTriangleAreaFromVertices(boudingBoxVertices[0], boudingBoxVertices[2], boudingBoxVertices[3]);
-
-			std::vector<cv::Point> groundTruthVertices;
-			groundTruthVertices.push_back(cv::Point(gt1X, gt1Y));
-			groundTruthVertices.push_back(cv::Point(gt2X, gt2Y));
-			groundTruthVertices.push_back(cv::Point(gt3X, gt3Y));
-			groundTruthVertices.push_back(cv::Point(gt4X, gt4Y));
-
-			double groundTruthArea = 0.0f;
-			groundTruthArea += GetTriangleAreaFromVertices(groundTruthVertices[0], groundTruthVertices[1], groundTruthVertices[2]);
-			groundTruthArea += GetTriangleAreaFromVertices(groundTruthVertices[0], groundTruthVertices[2], groundTruthVertices[3]);
-
-			int unionCount = 0, intersectionCount = 0;
-			for (int r = 0; r < bbY; r++)
-			{
-				for (int c = 0; c < frame.cols; c++)
-				{
-					double pBBarea = 0.0, pGTArea = 0.0;
-					for (int i = 0; i < 4; i++)
-					{
-						pBBarea += GetTriangleAreaFromVertices(cv::Point(r, c), boudingBoxVertices[i], boudingBoxVertices[((i+1) % 4)]);
-						pGTArea += GetTriangleAreaFromVertices(cv::Point(r, c), groundTruthVertices[i], groundTruthVertices[((i + 1) % 4)]);
-					}
-
-					if ((pBBarea <= boundingBoxArea) && (pGTArea <= groundTruthArea))
-					{
-						intersectionCount++;
-						unionCount++;
-					}
-					else if ((pBBarea <= boundingBoxArea) || (pGTArea <= groundTruthArea))
-					{
-						unionCount++;
-					}
-				}
-			}
-			float iou = 0.0f;
-			if (unionCount > 0)
-			{
-				iou = (float)intersectionCount / (float)unionCount;
-			}
-			std::cout << "IoU: " << iou << std::endl;
+			std::cout << "IoU: " << CalculateIoU(frame.cols, frame.rows, boudingBoxVertices, groundTruthVertices) << std::endl;
+		}
+		else if (mode == RunMode_ImageKPI_KITTI)
+		{
+			cv::Mat gtframe = cv::imread(WORKING_DIRECTORY + kittiGTPath);
+			std::cout << "IoU: " << CalculateIoU(gtframe, boudingBoxVertices) << std::endl;
 		}
 	}
 	else if(mode == RunMode_Video)
@@ -568,7 +617,7 @@ int main(int argc, char* argv[])
 		{
 			if (roiMaskInitDone == false)
 			{
-				bbY = CreateROIMask(roiMask, frame.cols, frame.rows);
+				bbY = CreateROIMask(roiMask, frame.cols, frame.rows, roiVertices);
 				roiMaskInitDone = true;
 			}
 			cv::Mat colorMaskedFrame;
@@ -586,6 +635,66 @@ int main(int argc, char* argv[])
 		}
 
 		videoOut.SaveOutputVideo();
+	}
+	else if ((mode == RunMode_Tune_KITTI) || (mode == RunMode_Tune_Sligo))
+	{
+		cv::Mat gtframe = cv::imread(WORKING_DIRECTORY + kittiGTPath);
+		for (double cannyBaseThreshold = 10.0; cannyBaseThreshold < 240.0; cannyBaseThreshold += 20.0)
+		{
+			for (double rho = 1.0; rho < 1.1; rho += 1.0)
+			{
+				for (int theta = 1; theta <= 1; theta++)
+				{
+					for (int threshold = 10; threshold < 110; threshold += 10)
+					{
+						for (double minLineLength = 20.0; minLineLength < 100.0; minLineLength += 20.0)
+						{
+							for (double maxLineGap = 10.0; maxLineGap < 100.0; maxLineGap += 20.0)
+							{
+								LaneDetectionHyperparameters hyperparams;
+								hyperparams.cannyHyperparams.t1 = cannyBaseThreshold;
+								hyperparams.cannyHyperparams.t2 = cannyBaseThreshold * 1.2;
+								hyperparams.houghHyperparams.rho = rho;
+								hyperparams.houghHyperparams.theta = (double)theta;
+								hyperparams.houghHyperparams.threshold = threshold;
+								hyperparams.houghHyperparams.minLineLength = minLineLength;
+								hyperparams.houghHyperparams.maxLineGap = maxLineGap;
+
+								// Print the hyperparameters
+								std::cout << "Hyperparameters: Canny T1: " << hyperparams.cannyHyperparams.t1 <<
+									"Canny T2: " << hyperparams.cannyHyperparams.t2 <<
+									"Hough Rho: " << hyperparams.houghHyperparams.rho <<
+									"Hough Theta: " << hyperparams.houghHyperparams.theta <<
+									"Hough Threshold: " << hyperparams.houghHyperparams.threshold <<
+									"Hough Min Line Len: " << hyperparams.houghHyperparams.minLineLength <<
+									"Hough Max Line Gap: " << hyperparams.houghHyperparams.maxLineGap << std::endl;
+
+								cv::Mat frame = cv::imread(WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".jpg");
+								bbY = CreateROIMask(roiMask, frame.cols, frame.rows, roiVertices);
+								if (SAVE_EVERYTHING)
+								{
+									cv::imwrite(WORKING_DIRECTORY + "roiMask.jpg", roiMask);
+								}
+								cv::Mat colorMaskedFrame;
+								ExtractYellowAndWhite(frame, colorMaskedFrame);
+								cv::Mat outFrame;
+								DoLaneDetection(frame, colorMaskedFrame, roiMask, bbY, fID, hyperparams, outFrame, boudingBoxVertices);
+								cv::imwrite(WORKING_DIRECTORY + "out_frame_" + std::to_string(fID) + ".jpg", outFrame);
+
+								if (mode == RunMode_Tune_Sligo)
+								{
+									std::cout << "IoU: " << CalculateIoU(frame.cols, frame.rows, boudingBoxVertices, groundTruthVertices) << std::endl;
+								}
+								else
+								{
+									std::cout << "IoU: " << CalculateIoU(gtframe, boudingBoxVertices) << std::endl;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
 	}
 
 	return 0;
