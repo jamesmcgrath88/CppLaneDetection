@@ -11,7 +11,7 @@
 #include <vector>
 #include "OutputVideo.h"
 
-const std::string WORKING_DIRECTORY = "C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\";
+const std::string WORKING_DIRECTORY = "C:\\Users\\jmcgrath\\Documents\\AutomotiveAI\\MVGCV\\Individual Assignment\\6325\\";
 const bool SAVE_EVERYTHING = false;
 const bool PRINT_TO_CONSOLE = false;
 
@@ -638,56 +638,84 @@ int main(int argc, char* argv[])
 	}
 	else if ((mode == RunMode_Tune_KITTI) || (mode == RunMode_Tune_Sligo))
 	{
-		cv::Mat gtframe = cv::imread(WORKING_DIRECTORY + kittiGTPath);
-		for (double cannyBaseThreshold = 10.0; cannyBaseThreshold < 240.0; cannyBaseThreshold += 20.0)
+		cv::Mat gtframe;
+		float iouHighWaterMark = 0.0f;
+		if (mode == RunMode_Tune_KITTI)
 		{
-			for (double rho = 1.0; rho < 1.1; rho += 1.0)
+			gtframe = cv::imread(WORKING_DIRECTORY + kittiGTPath);
+		}
+		for (int doColourFiltering = 0; doColourFiltering <= 1; doColourFiltering++)
+		{
+			for (double cannyBaseThreshold = 10.0; cannyBaseThreshold < 80.0; cannyBaseThreshold += 10.0)
 			{
-				for (int theta = 1; theta <= 1; theta++)
+				for (double rho = 1.0; rho < 1.1; rho += 1.0)
 				{
-					for (int threshold = 10; threshold < 110; threshold += 10)
+					for (int theta = 1; theta <= 1; theta++)
 					{
-						for (double minLineLength = 20.0; minLineLength < 100.0; minLineLength += 20.0)
+						for (int threshold = 10; threshold < 110; threshold += 10)
 						{
-							for (double maxLineGap = 10.0; maxLineGap < 100.0; maxLineGap += 20.0)
+							for (double minLineLength = 20.0; minLineLength < 100.0; minLineLength += 20.0)
 							{
-								LaneDetectionHyperparameters hyperparams;
-								hyperparams.cannyHyperparams.t1 = cannyBaseThreshold;
-								hyperparams.cannyHyperparams.t2 = cannyBaseThreshold * 1.2;
-								hyperparams.houghHyperparams.rho = rho;
-								hyperparams.houghHyperparams.theta = (double)theta;
-								hyperparams.houghHyperparams.threshold = threshold;
-								hyperparams.houghHyperparams.minLineLength = minLineLength;
-								hyperparams.houghHyperparams.maxLineGap = maxLineGap;
-
-								// Print the hyperparameters
-								std::cout << "Hyperparameters: Canny T1: " << hyperparams.cannyHyperparams.t1 <<
-									"Canny T2: " << hyperparams.cannyHyperparams.t2 <<
-									"Hough Rho: " << hyperparams.houghHyperparams.rho <<
-									"Hough Theta: " << hyperparams.houghHyperparams.theta <<
-									"Hough Threshold: " << hyperparams.houghHyperparams.threshold <<
-									"Hough Min Line Len: " << hyperparams.houghHyperparams.minLineLength <<
-									"Hough Max Line Gap: " << hyperparams.houghHyperparams.maxLineGap << std::endl;
-
-								cv::Mat frame = cv::imread(WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".jpg");
-								bbY = CreateROIMask(roiMask, frame.cols, frame.rows, roiVertices);
-								if (SAVE_EVERYTHING)
+								for (double maxLineGap = 10.0; maxLineGap < 100.0; maxLineGap += 20.0)
 								{
-									cv::imwrite(WORKING_DIRECTORY + "roiMask.jpg", roiMask);
-								}
-								cv::Mat colorMaskedFrame;
-								ExtractYellowAndWhite(frame, colorMaskedFrame);
-								cv::Mat outFrame;
-								DoLaneDetection(frame, colorMaskedFrame, roiMask, bbY, fID, hyperparams, outFrame, boudingBoxVertices);
-								cv::imwrite(WORKING_DIRECTORY + "out_frame_" + std::to_string(fID) + ".jpg", outFrame);
+									LaneDetectionHyperparameters hyperparams;
+									hyperparams.cannyHyperparams.t1 = cannyBaseThreshold;
+									hyperparams.cannyHyperparams.t2 = cannyBaseThreshold * 3.0;
+									hyperparams.houghHyperparams.rho = rho;
+									hyperparams.houghHyperparams.theta = (double)theta;
+									hyperparams.houghHyperparams.threshold = threshold;
+									hyperparams.houghHyperparams.minLineLength = minLineLength;
+									hyperparams.houghHyperparams.maxLineGap = maxLineGap;
 
-								if (mode == RunMode_Tune_Sligo)
-								{
-									std::cout << "IoU: " << CalculateIoU(frame.cols, frame.rows, boudingBoxVertices, groundTruthVertices) << std::endl;
-								}
-								else
-								{
-									std::cout << "IoU: " << CalculateIoU(gtframe, boudingBoxVertices) << std::endl;
+									// Print the hyperparameters
+									std::ostringstream oss;
+									oss << "CF" << doColourFiltering << 
+										"_CT1" << hyperparams.cannyHyperparams.t1 <<
+										"_CT2" << hyperparams.cannyHyperparams.t2 <<
+										"_HR" << hyperparams.houghHyperparams.rho <<
+										"_HTA" << hyperparams.houghHyperparams.theta <<
+										"_HTD" << hyperparams.houghHyperparams.threshold <<
+										"_HLL" << hyperparams.houghHyperparams.minLineLength <<
+										"_HLG" << hyperparams.houghHyperparams.maxLineGap;
+									std::string hyperparamsStr = oss.str();
+									std::cout << "Hyperparameters: " << hyperparamsStr << std::endl;
+
+									boudingBoxVertices.clear();
+									cv::Mat frame = cv::imread(WORKING_DIRECTORY + subfolder + "\\image" + std::to_string(fID) + ".jpg");
+									bbY = CreateROIMask(roiMask, frame.cols, frame.rows, roiVertices);
+									if (SAVE_EVERYTHING)
+									{
+										cv::imwrite(WORKING_DIRECTORY + "roiMask.jpg", roiMask);
+									}
+									cv::Mat outFrame;
+									if (doColourFiltering == 1)
+									{
+										cv::Mat colorMaskedFrame;
+										ExtractYellowAndWhite(frame, colorMaskedFrame);
+										DoLaneDetection(frame, colorMaskedFrame, roiMask, bbY, fID, hyperparams, outFrame, boudingBoxVertices);
+									}
+									else
+									{
+										DoLaneDetection(frame, frame, roiMask, bbY, fID, hyperparams, outFrame, boudingBoxVertices);
+									}
+									
+									//cv::imwrite(WORKING_DIRECTORY + subfolder +  "out_" + hyperparamsStr + ".jpg", outFrame);
+									float iou = 0.0f;
+									if (mode == RunMode_Tune_Sligo)
+									{
+										iou = CalculateIoU(frame.cols, frame.rows, boudingBoxVertices, groundTruthVertices);
+									}
+									else
+									{
+										iou = CalculateIoU(gtframe, boudingBoxVertices);
+										
+									}
+									std::cout << "IoU: " << iou << std::endl;
+									if (iou > iouHighWaterMark)
+									{
+										std::cout << "New IoU HWM: " << iou << std::endl;
+										iouHighWaterMark = iou;
+									}
 								}
 							}
 						}
